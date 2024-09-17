@@ -1,0 +1,125 @@
+---
+title: "Lov utan lov"
+format: html
+editor: visual
+---
+
+Vi kan börja med att analysera hur frånvaron fördelas över våra skolor, särskilt andelen beviljad ledighet. Råå södra skola har den högsta andelen beviljad ledighet, där 1,2% av all lektionstid förloras på grund av godkänd ledighet. I andra änden av spektrat hittar vi Gantofta, där endast 0,1% av lektionstiden missas av samma anledning. När skolorna sorteras efter andelen beviljad ledighet framträder en tydlig trend: skolor med resursstarka föräldrar tenderar att ligga till vänster, medan de med mindre resursstarka föräldrar återfinns till höger. Även om det finns en del undantag. En djupare analys av socioekonomiska faktorer kan ge ytterligare insikter i hur dessa påverkar frånvaromönstren.
+```{r}
+#| cache: false
+#| echo: false
+#| warning: true
+#| output: false
+library(tidyverse)
+library(ggplot2)
+library(plotly)
+library(readxl)
+library(scales)
+library(knitr)
+library(kableExtra)
+skolor1 <- read_excel("skolor1.xlsx")
+skolor2 <- read_excel("skolor2.xlsx")
+
+df<-skolor1 %>% left_join(skolor2, by=c("Skola"))
+
+df<-df %>% mutate(AnmaldFranvaro=`Andel frånvaro`*`Anmäld frånvaro`)
+df<-df %>% mutate(ejAnmäld=`Andel frånvaro`*`Ej anmäld frånvaro`)
+df<-df %>% mutate(beviljad=`Andel frånvaro`*`Beviljad ledighet`)
+
+plotdf<-df %>% select(Skola,AnmaldFranvaro,ejAnmäld,beviljad)
+
+df_long<-plotdf %>% pivot_longer(-Skola, names_to="anledning",values_to = "value")
+df_long<-df_long %>% filter(!Skola%in%c("Borgmästarskolan","Maria Parkskolans anpassade grundskola","Rönnbäcksskolan"))
+#df_long<-df_long %>% mutate(Skola=str_trunc(Skola,12,"right"))
+bev_order<-df_long %>% filter(anledning=="beviljad") %>% 
+  arrange(-value) %>% pull(Skola)
+df_long <-df_long %>% mutate(anledning=factor(anledning, levels= c("ejAnmäld","AnmaldFranvaro","beviljad")))
+
+df_long <- df_long %>%
+  group_by(Skola) %>%mutate(Beviljad = ifelse(anledning == "beviljad", value, NA),
+         Ej_anmäld = ifelse(anledning == "ejAnmäld", value, NA),
+         anmäld=ifelse(anledning=="AnmaldFranvaro", value, NA))
+
+df_long <- df_long %>%
+  group_by(Skola) %>%
+  mutate(Beviljad = ifelse(is.na(Beviljad), first(na.omit(Beviljad)), Beviljad)) %>%
+  ungroup()
+df_long <- df_long %>%
+  group_by(Skola) %>%
+  mutate(Ej_anmäld = ifelse(is.na(Ej_anmäld), first(na.omit(Ej_anmäld)), Ej_anmäld)) %>%
+  ungroup()
+df_long <- df_long %>%
+  group_by(Skola) %>%
+  mutate(anmäld = ifelse(is.na(anmäld), first(na.omit(anmäld)), anmäld)) %>%
+  ungroup()
+
+
+```
+
+```{r}
+#| echo: false
+#| cache: false
+#| warning: true
+#| output: true
+
+p<-ggplot(df_long,aes(fill=anledning,y=value,x=factor(Skola, levels=bev_order),
+                      text=paste("Beviljad ledighet:",
+                                 round(Beviljad*100,1),"%",
+                                 "<br>Ej anmäld:",
+                                 round(Ej_anmäld*100,1),"%",
+                      "<br>Anmäld:", round(anmäld*100,1),"%")
+))+
+  scale_y_continuous(labels = label_percent()) + # Convert y-axis to percentage
+  labs(x = "Skola", y = "Frånvaro i %", title = "Totalt frånvaro efter anledning") +
+  geom_bar(position="stack", stat="identity")+
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) 
+
+ggplotly(p, tooltip = "text")
+
+```
+
+**Vilka veckor är eleverna lediga som går på de skolor med högst andel föräldrar med eftergymnasial utbildning?** 
+![hogsta](Bilder/Veckor 5 högsta utbildning.png) Vi noterar att det är högre andel ledighet före- och efter lov (gröna områden i staplarna). Exempelvis höstlovet v.44, jullovet och sista veckan innan sommarlovet.
+
+**Vilka veckor är eleverna lediga som går på de skolor med lägst andel föräldrar med eftergymnasial utbildning?** 
+![lagsta](Bilder/Veckor 5 lägsta.png) Veckor som sticker ut är exempelvis vecka 15 då ramadan avslutades och Eid al-Fitr inträffade, samt veckan innan sommarlovet. Överlag är det dock sparsamt med beviljad ledighet. Skillnaden känns iofs rimlig i att kapitalstarka hushåll har större möjligheter att ta ledigt.
+
+Den andra grafen visar också hur omfattande den oanmälda frånvaron är på skolor i områden med socioekonomiska utmaningar (röda områden).
+
+**Den naturliga följdfrågan blir om den anmälda/oanmälda frånvaron på dessa skolor kan vara föräldrastödd frånvaro, där exempelvis eleverna är bortresta**
+
+![Frånvaro uppdelat efter månad](bilder/monthj.png){#fig-month}
+
+Frånvaron vid våra skolor, uppdelad per månad, visar att augusti, september och oktober har liknande nivåer av frånvaro, som illustrerat i @fig-month. Detta mönster ger en utgångspunkt för att undersöka om frånvaron är högre på vissa skolor i augusti jämfört med de följande månaderna. En sådan skillnad kan potentiellt vara en indikator på föräldrastödd frånvaro.
+
+```{r}
+#| echo: false
+#| cache: false
+#| warning: true
+#| output: true
+df <- data.frame(
+  Skola = c("Wieselgrensskolan", "Västra Berga skola", "Raus Planterings skola", "Anneroskolan", "Drottninghögsskolan"),
+  Augusti = c(12.6, 9.6, 9.1, 12.4, 10.8),
+  Medel_sep_okt = c(11.3, 8.1, 6.7, 9.3, 6.4),
+  Skillnad = c(1.3, 1.5, 2.4, 3.1, 4.5)
+)
+
+# Create the table using kable
+df %>%
+  kable(caption = "Frånvaro per skola: Augusti jämfört med genomsnitt för september och oktober", 
+        col.names = c("Skola", "Augusti(%)", "Medel sep/okt(%)", "Skillnad(%-enheter)")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "responsive"))
+```
+I tabellen har jag identifierat fem skolor där det finns markanta skillnader i frånvaron mellan augusti och de efterföljande månaderna, exempelvis skiljer sig frånvaron i augusti och septembert/oktober hela 4,5 %-enheter på Drottninghögskolan. Detta skulle kunna tyda på föräldrastödd frånvaro. Men när vi analyserar vilka veckor eleverna faktiskt är frånvarande, visar det sig att det inte är den första veckan på höstterminen som sticker ut mest. Istället är det främst den tredje och fjärde veckan som har högst frånvaro. Förlängda lov borde rimligtvis påverka de första veckorna mest, och även om frånvaron är något högre då jämfört med senare veckor i september och oktober, tyder veckofördelningen ändå på att andra faktorer också spelar in.
+
+
+
+![Första veckorna av höstterminen](Bilder/firstweeks.png)
+
+**Elevomsättning**
+
+För många skolor så är det ingen omfattande förändring av elevgruppen de första veckorna. Men lite analys av Wieselgrenskolan visar att HT23 så försvann ca 20 elever de första 3-4 veckorna. Om vi tittar närmare på deras data i frånvarostatistiken och Edlevo så framgår det att flertalet av dessa elever aldrig dök upp till skolan eller flyttade men fortsatte att registrera frånvaro. De hade således väldigt hög frånvaro men försvann ur systemet efter ett par veckor. Att skolan hade ett 10-15 extra med nästan 100% frånvaro kommer göra stor skillnad i frånvarostatistiken (grovt uppskattat en 1-3 procentenheter). 
+
+**Är den ökade frånvaron i augusti på dessa skolor en indikation på ett förlängt lov?**
+
+Det är svårt att dra några definitiva slutsatser, även om skillnaderna är påtagliga. En genomgång av siffrorna visar tydligt att frånvaron varierar mellan skolorna. För skolor där elevomsättningen är större påverkas frånvarostatistiken avsevärt, särskilt med elever som aldrig dyker upp. Men många skolor har omfattande problem med hög frånvaro, och eventuella förlängda lov i augusti framstår i det sammanhanget som ett mindre symptom på ett betydligt större problem.
